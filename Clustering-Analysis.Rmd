@@ -1,0 +1,1069 @@
+---
+title: "Unsupervised Learning in Action: Discovering Patterns Without Labels"
+author: 'Autor: DATAMANZ'
+date: "Octubre 2024"
+---
+
+# Section 1 - *Hawks*
+
+The exercises will be based on the *Hawks* dataset from the R package *Stat2Data*.  
+
+Students and faculty at **Cornell College** in **Mount Vernon, Iowa**, collected data over many years at the **Lake MacBride Hawk Watch**, near **Iowa City, Iowa**. The dataset analyzed here is a **subset** of the original dataset, including only species with **more than 10 observations**. The data were collected from **random samples** of three different hawk species: **Red-tailed Hawk, Sharp-shinned Hawk, and Cooper's Hawk**.  
+
+We selected this dataset due to its **similarity to the *penguins* dataset** and its **potential for applying unsupervised data mining algorithms**.  
+
+
+```{r message= FALSE, warning=FALSE}
+if (!require('Stat2Data')) install.packages('Stat2Data')
+library(Stat2Data)
+data("Hawks")
+summary(Hawks)
+```
+## Data Cleaning
+
+Present the dataset, including the **column names and their meanings**, as well as the **distributions of their values**.  
+
+We start by **loading the necessary libraries** for our analysis.
+
+
+```{r}
+if (!require('cluster')) install.packages('cluster')
+library(cluster)
+if (!require('Stat2Data')) install.packages('Stat2Data')
+library(Stat2Data)
+if (!require('Stat2Data')) install.packages('Stat2Data')
+if (!require('dplyr')) install.packages('dplyr')
+library(dplyr)
+if (!require('ggplot2')) install.packages("ggplot2")
+library(ggplot2)
+if (!require('factoextra')) install.packages("factoextra")
+library(factoextra)
+if (!require('NbClust')) install.packages("NbClust")
+library(NbClust)
+if (!require('dbscan')) install.packages('dbscan')
+library(dbscan)
+if (!require('tidyr')) install.packages('tidyr')
+library(tidyr)
+```
+We perform a **comprehensive summary** to examine all variables in the dataset, including their **quartiles**.  
+
+This **initial analysis** is an essential **preliminary step** that is highly beneficial when working with datasets. By conducting this review, we can gain **an overview of the data distribution**, **identify potential anomalies**, and **better understand the dataset’s underlying structure**.  
+
+This allows us to make **informed decisions** in the subsequent steps.
+
+```{r}
+data("Hawks")
+summary(Hawks)
+```
+
+We observe that we will be working with **measurements of various characteristics of hawks** that have been **captured and released**.  
+
+In our dataset, we have **several numerical variables**, such as **wing length** and **weight**.  
+
+To better understand the **structure of our dataset**, we use the **str** function.
+
+```{r}
+str(Hawks)
+```
+For our analysis, we use the **dataset documentation** available at  
+[*https://rdrr.io/rforge/Stat2Data/man/Hawks.html*](https://rdrr.io/rforge/Stat2Data/man/Hawks.html).  
+
+This source provides **detailed and specific information** about the **attributes** present in the dataset.
+
+### Variable Descriptions:
+
++ **Month**: Capture month code, where **8 = September** and **12 = December**.  
++ **Day**: Day of the month when the hawk was captured.  
++ **Year**: Capture year, ranging from **1992 to 2003**.  
++ **CaptureTime**: Time of capture in **HH** format.  
++ **ReleaseTime**: Time of release in **HH** format.  
++ **BandNumber**: **ID band code** assigned to the bird.  
++ **Species**: Bird species:  
+  - **CH** = Cooper’s Hawk  
+  - **RT** = Red-tailed Hawk  
+  - **SS** = Sharp-shinned Hawk  
++ **Age**: Age of the bird:  
+  - **A** = Adult  
+  - **I** = Immature  
++ **Sex**: Sex of the bird:  
+  - **F** = Female  
+  - **M** = Male  
+  - Missing values indicate **unknown sex**.  
++ **Wing**: **Primary wing feather length (mm)**, measured from tip to wrist.  
++ **Weight**: **Body weight (grams)**.  
++ **Culmen**: **Upper bill length (mm)**, measured from tip to the fleshy part.  
++ **Hallux**: **Killing talon length (mm)**.  
++ **Tail**: **Tail length measurement (mm)** (MacBride Raptor Center method).  
++ **StandardTail**: **Standard tail length measurement (mm)**.  
++ **Tarsus**: **Basic foot bone length (mm)**.  
++ **WingPitFat**: **Amount of fat in the wing pit**.  
++ **KeelFat**: **Amount of fat on the breastbone** (measured by touch).  
++ **Crop**: **Food content in the crop**, coded **1 = full** to **0 = empty**.  
+
+Now, we continue **preparing the dataset** by **searching for missing values**.
+
+
+```{r}
+missing_values <- colSums(is.na(Hawks))
+print(missing_values)
+```
+We begin **cleaning the dataset**.  
+
+Since we observe a **high percentage of missing values** in certain variables and considering that our dataset contains **918 records**, the best option is to **remove the following attributes**:  
+**StandardTail, Tarsus, WingPitFat, KeelFat, and Crop**.  
+
+Afterward, we **check for missing values again**.
+
+```{r}
+limpio_hawks <- Hawks[, !(names(Hawks) %in% c("StandardTail", "Tarsus", "WingPitFat", "KeelFat", "Crop"))]
+missing_values2 <- colSums(is.na(limpio_hawks))
+print(missing_values2)
+```
+The number of **missing values has significantly decreased**.  
+
+Currently, the missing values are:  
+- **Wing**: **1** missing value  
+- **Weight**: **10** missing values  
+- **Culmen**: **7** missing values  
+- **Hallux**: **6** missing values  
+
+Following the **methodology**, we will attempt to **impute these values** to obtain a **fully clean dataset**.  
+
+We will start with the **Wing** variable, using **mean values based on age and species**.  
+
+We chose this attribute first since it only has **one missing value**, making it easier to apply the same method to the other variables.  
+
+### First, we calculate the mean values based on species and age.
+
+```{r}
+mean_wing <- Hawks %>%
+  group_by(Species, Age) %>%
+  summarise(mean_wing = mean(Wing, na.rm = TRUE), .groups = 'drop')
+
+print(mean_wing)
+```
+
+We identify the **row corresponding to the NA value** in the **Wing** attribute that we need to replace.  
+
+Since we know it belongs to an **adult Cooper’s Hawk**, and based on the previously calculated means, we determine that the **average weight is 242**.
+
+
+```{r}
+na_wing_row <- Hawks[is.na(Hawks$Wing), ]
+print(na_wing_row)
+```
+We impute the value **242.4839** to the missing value in the **Wing** attribute.
+
+```{r}
+Hawks <- Hawks %>%
+  mutate(Wing = ifelse(is.na(Wing), 242.4839, Wing))
+```
+
+Now, we **merge the imputed values** back into the **original dataset** to ensure data consistency.  
+
+We apply this **imputation process** to **all variables with missing values**.
+
+```{r}
+mean_values <- Hawks %>%
+  group_by(Species, Age) %>%
+  summarise(
+    mean_wing = mean(Wing, na.rm = TRUE),
+    mean_weight = mean(Weight, na.rm = TRUE),
+    mean_culmen = mean(Culmen, na.rm = TRUE),
+    mean_hallux = mean(Hallux, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print("Medias calculadas por especie y edad:")
+print(mean_values)
+```
+
+With the **mean values calculated for all attributes** of our missing variables, we **impute them** just as we initially did with **Wing**, but now for the **other three variables**.  
+
+As a result, we **no longer have missing data** (except in the **original variables**, which we will remove in the next step).
+
+```{r}
+Hawks <- Hawks %>%
+  left_join(mean_values, by = c("Species", "Age")) %>%
+  mutate(
+    Wing = ifelse(is.na(Wing), mean_wing, Wing),
+    Weight = ifelse(is.na(Weight), mean_weight, Weight),
+    Culmen = ifelse(is.na(Culmen), mean_culmen, Culmen),
+    Hallux = ifelse(is.na(Hallux), mean_hallux, Hallux)
+  ) %>%
+  select(-mean_wing, -mean_weight, -mean_culmen, -mean_hallux)  
+
+missing_values_after_imputation <- colSums(is.na(Hawks))
+print("Valores faltantes después de la imputación:")
+print(missing_values_after_imputation)
+```
+We obtain our **clean dataset**, with **no missing values**, all **imputations applied**, and **unnecessary variables removed**.
+
+```{r}
+hawks_limpio2 <- Hawks[, !(names(Hawks) %in% c("StandardTail", "Tarsus", "WingPitFat", "KeelFat", "Crop"))]
+missing_values3 <- colSums(is.na(hawks_limpio2))
+print(missing_values3)
+```
+We perform a **new summary** of our **clean dataset** and reanalyze the variables to conduct an **initial exploratory analysis**.
+```{r}
+summary(hawks_limpio2)
+```
+At first glance, we can determine that the **Weight** variable shows a **significant difference** between the minimum and maximum values.  
+
+We calculate the **standard deviation** of the **Weight** variable to determine if there are **outliers**.
+
+```{r}
+detect_outliers_sd <- function(data, column) {
+  mean_value <- mean(data[[column]], na.rm = TRUE)
+  sd_value <- sd(data[[column]], na.rm = TRUE)
+  
+  lower_bound <- mean_value - 3 * sd_value
+  upper_bound <- mean_value + 3 * sd_value
+  
+  outliers <- data %>% filter(data[[column]] < lower_bound | data[[column]] > upper_bound)
+  
+  return(list(outliers = outliers, lower_bound = lower_bound, upper_bound = upper_bound))
+}
+
+result <- detect_outliers_sd(hawks_limpio2, "Weight")
+outliers_weight_sd <- result$outliers
+lower_bound <- result$lower_bound
+upper_bound <- result$upper_bound
+
+print("Outliers in the 'Weight' column using standard deviation:")
+print(outliers_weight_sd)
+
+plot(hawks_limpio2$Weight, 
+     main = "Weight Scatter Plot", 
+     ylab = "Weight", 
+     xlab = "Index",
+     pch = ifelse(hawks_limpio2$Weight < lower_bound | hawks_limpio2$Weight > upper_bound, 19, 1), 
+     col = ifelse(hawks_limpio2$Weight < lower_bound | hawks_limpio2$Weight > upper_bound, "red", "black"))
+
+abline(h = c(lower_bound, upper_bound), col = "blue", lwd = 2, lty = 2)
+
+```
+We perform a **second outlier analysis** on **foot size measurements**, as the **summary statistics** indicate a **significant difference** between the **minimum and maximum values**.  
+
+This time, we **observe 7 outliers**.
+
+
+```{r}
+detect_outliers_sd <- function(data, column) {
+  mean_value <- mean(data[[column]], na.rm = TRUE)
+  sd_value <- sd(data[[column]], na.rm = TRUE)
+  
+  lower_bound <- mean_value - 3 * sd_value
+  upper_bound <- mean_value + 3 * sd_value
+  
+  outliers <- data %>% filter(data[[column]] < lower_bound | data[[column]] > upper_bound)
+  
+  outlier_count <- nrow(outliers)
+  
+  return(list(outliers = outliers, lower_bound = lower_bound, upper_bound = upper_bound, count = outlier_count))
+}
+
+result_hallux <- detect_outliers_sd(hawks_limpio2, "Hallux")
+outliers_hallux_sd <- result_hallux$outliers
+lower_bound_hallux <- result_hallux$lower_bound
+upper_bound_hallux <- result_hallux$upper_bound
+outlier_count_hallux_sd <- result_hallux$count
+
+print("Outliers in the 'Hallux' column using standard deviation:")
+print(outliers_hallux_sd)
+print(paste("Number of detected outliers:", outlier_count_hallux_sd))
+
+
+plot(hawks_limpio2$Hallux, 
+     main = "Hallux Scatter Plot", 
+     ylab = "Hallux", 
+     xlab = "Índex", 
+     pch = ifelse(hawks_limpio2$Hallux < lower_bound_hallux | hawks_limpio2$Hallux > upper_bound_hallux, 19, 1), 
+     col = ifelse(hawks_limpio2$Hallux < lower_bound_hallux | hawks_limpio2$Hallux > upper_bound_hallux, "red", "black"))
+
+abline(h = c(lower_bound_hallux, upper_bound_hallux), col = "blue", lwd = 2, lty = 2)
+
+```
+Finally, to **confirm our hypothesis**, we perform the **outlier analysis on the entire cleaned dataset**.  
+
+We verify that **only those 7 Hallux values** are identified as **outliers**.
+
+
+```{r}
+detect_outliers_sd <- function(data, column) {
+  mean_value <- mean(data[[column]], na.rm = TRUE)
+  sd_value <- sd(data[[column]], na.rm = TRUE)
+  
+  lower_bound <- mean_value - 3 * sd_value
+  upper_bound <- mean_value + 3 * sd_value
+  
+  outliers <- data %>% filter(data[[column]] < lower_bound | data[[column]] > upper_bound)
+  
+  outlier_count <- nrow(outliers)
+  
+  return(list(outliers = outliers, lower_bound = lower_bound, upper_bound = upper_bound, count = outlier_count))
+}
+
+numeric_columns <- sapply(hawks_limpio2, is.numeric)  
+outlier_results <- list() 
+
+for (column_name in names(hawks_limpio2)[numeric_columns]) {
+  result <- detect_outliers_sd(hawks_limpio2, column_name)
+  outlier_results[[column_name]] <- result
+}
+
+for (column_name in names(outlier_results)) {
+  cat(paste("Outliers in the column:", column_name, "\n"))
+  print(outlier_results[[column_name]]$outliers)
+  cat(paste("Number of detected outliers:", outlier_results[[column_name]]$count, "\n\n"))
+  
+  plot(hawks_limpio2[[column_name]], 
+       main = paste("Scatter Plot of", column_name), 
+       ylab = column_name, 
+       xlab = "Index", 
+       pch = ifelse(hawks_limpio2[[column_name]] < result$lower_bound | hawks_limpio2[[column_name]] > result$upper_bound, 19, 1), 
+       col = ifelse(hawks_limpio2[[column_name]] < result$lower_bound | hawks_limpio2[[column_name]] > result$upper_bound, "red", "black"))
+  
+  abline(h = c(result$lower_bound, result$upper_bound), col = "blue", lwd = 2, lty = 2)
+}
+
+```
+
+Outlier attributes are identified in the same way as we did for **missing values detection**, but now focusing on **outliers**.
+
+
+```{r}
+all_outliers <- data.frame()
+
+for (column_name in names(hawks_limpio2)[numeric_columns]) {
+  result <- outlier_results[[column_name]]  
+  
+  if (result$count > 0) {  
+    cat(paste("Outliers in the column:", column_name, "\n"))
+    print(result$outliers)  
+    
+    
+    all_outliers <- bind_rows(all_outliers, result$outliers)
+  }
+}
+
+cat("Complete rows of detected outliers:\n")
+print(all_outliers)
+
+```
+
+An attempt was made to **remove the outlier rows**, but it was **unsuccessful** 
+
+To address this, an **internet search was conducted**, leading to a study that performs **outlier imputation** ->  
+[*https://rpubs.com/Kamaranis/unsupervised_methods*](https://rpubs.com/Kamaranis/unsupervised_methods).  
+
+We applied the method from this study to our dataset, and it **worked correctly**.
+
+
+```{r}
+media_hallux_especie_edad <- hawks_limpio2 %>%
+  group_by(Species, Age) %>%
+  summarise(media_hallux = mean(Hallux, na.rm = TRUE), .groups = 'drop')
+
+all_outliers <- data.frame()
+
+for (column_name in names(hawks_limpio2)[numeric_columns]) {
+  result <- outlier_results[[column_name]]
+  
+  if (result$count > 0) {
+    cat(paste("Outliers in the column:", column_name, "\n"))
+    print(result$outliers)
+    
+    all_outliers <- bind_rows(all_outliers, result$outliers)
+  }
+}
+
+cat("Complete rows of detected outliers:\n")
+print(all_outliers)
+
+hallux_upper_limit <- 55.9  
+
+for (i in 1:nrow(hawks_limpio2)) {
+  
+  if (hawks_limpio2$Hallux[i] > hallux_upper_limit) {
+    mean_hallux <- media_hallux_especie_edad$media_hallux[
+      media_hallux_especie_edad$Species == hawks_limpio2$Species[i] & 
+      media_hallux_especie_edad$Age == hawks_limpio2$Age[i]
+    ]
+    hawks_limpio2$Hallux[i] <- mean_hallux
+  }
+}
+
+remaining_outliers_hallux <- detect_outliers_sd(hawks_limpio2, "Hallux")
+cat("Remaining outliers in Hallux after imputation:\n")
+print(remaining_outliers_hallux$outliers) 
+
+```
+
+We verify that **outliers have been successfully removed** and that the **imputation was correctly applied**, using both a **boxplot** and a **summary**.
+
+
+```{r}
+boxplot(hawks_limpio2$Hallux, 
+        main = "Hallux", 
+        ylab = "Spur Size (mm)", 
+        outline = TRUE, 
+        col = "lightblue")
+
+abline(h = mean(hawks_limpio2$Hallux, na.rm = TRUE), col = "red", lty = 2)
+```
+
+```{r}
+summary(hawks_limpio2)
+```
+## Exploratory Data Analysis
+
+After **cleaning the dataset**, we will **analyze** it using **various visualizations** to gain a **general overview** and start drawing **preliminary conclusions**.
+
+For example, the **most common species** in our dataset is **"RT"** (Red-tailed Hawk).
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Species)) +
+  geom_bar(fill = "skyblue") +
+  labs(title = "Number of Birds by Species", x = "Species", y = "Number of Birds")
+```
+Species: Bird species classification:  
+- **"CH"** = Cooper's Hawk  
+- **"RT"** = Red-tailed Hawk  
+- **"SS"** = Sharp-shinned Hawk  
+
+```{r}
+especies_count <- hawks_limpio2 %>%
+  group_by(Species) %>%
+  summarize(Count = n()) %>%
+  arrange(desc(Count))
+
+print(especies_count)
+```
+
+We create a **relationship between wing length and weight**.  
+
+This **graph is crucial**, as we can already identify **three distinct groups**, providing an **important clue** that we may have **three clusters**.  
+
+However, we continue with the **exploratory analysis**.
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Wing, y = Weight, color = Species)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Relationship Between Wing Length and Weight", 
+       x = "Wing Length (mm)", 
+       y = "Weight (g)")
+```
+
+We analyze the **number of birds captured per year** and notice an **anomaly in 1996**.  
+
+After a brief investigation, we found that **1996 was one of the harshest winters on record**, which could be a **significant factor for the analysis**.  
+
+**Reference for the indicated data:**  
+[*https://www.thegazette.com/curious-iowa/curious-iowa-when-did-iowa-have-record-setting-weather/*](https://www.thegazette.com/curious-iowa/curious-iowa-when-did-iowa-have-record-setting-weather/)
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Year)) +
+  geom_bar(fill = "lightcoral") +
+  labs(title = "Number of Birds Captured per Year", 
+       x = "Year", 
+       y = "Number of Birds")
+```
+
+We extract another **key insight**: **most of the birds in our dataset are not of advanced age**.  
+
+Can we conclude that **mortality is very high at a certain age?**  
+
+We **lack additional data**, such as the **exact classification of age groups**, but this remains a **crucial point for deeper analysis**.
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Species, fill = Age)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Number of Adult and Immature Birds by Species", 
+       x = "Species", 
+       y = "Number of Birds")
+```
+We have **another key insight** supporting the idea that **three clusters** could be a great option.  
+
+The **weight distribution** clearly shows **three distinct groups**.
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Weight)) +
+  geom_histogram(binwidth = 50, fill = "purple", color = "black") +
+  labs(title = "Histogram of Bird Weight", 
+       x = "Weight (g)", 
+       y = "Frequency")
+```
+
+## K-Means Clustering
+
+We begin our **K-Means study** by selecting **numerical variables**, as **K-Means can only handle numerical data**.  
+
+We also include **Sex** and **Age**, even though they are **categorical variables**.
+
+```{r}
+hawks_data <- hawks_limpio2 %>%
+  select(Wing, Weight, Culmen, Hallux, Sex, Age)
+
+hawks_data
+```
+
+In our **analysis**, we selected **two categorical variables** to **convert into numerical format** using the **dummy encoding method**.  
+
+We assign **binary values (0 and 1)** to the **Age** categories (**Adult = 1, Immature = 0**) and **Sex** categories (**Male = 1, Female = 0**).
+
+
+```{r}
+hawks_limpio2 <- hawks_limpio2 %>%
+  mutate(
+    Sex_M = ifelse(Sex == "M", 1, 0), 
+    Sex_F = ifelse(Sex == "F", 1, 0),
+    
+    
+    Age_A = ifelse(Age == "A", 1, 0),   
+    Age_I = ifelse(Age == "I", 1, 0)    
+  )
+
+print(hawks_limpio2)
+```
+
+Now, we create a **subset of the dataset** containing **only numerical variables**, including **categorical variables converted into numerical format using dummy encoding**.
+
+```{r}
+hawks_selected <- hawks_limpio2 %>%
+  select(Wing, Weight, Culmen, Hallux, Sex_M, Sex_F, Age_A, Age_I)
+
+print(hawks_selected)
+```
+As we can observe, the transformation was **successfully applied**.  
+
+Now, we just need to **normalize** this dataset.  
+
+We must consider that **dummy numerical variables should not be scaled**, so we **exclude them from the scaling process**.  
+
+**Reference:**  
+[*https://stackoverflow.com/questions/74365630/how-to-avoid-scaling-dummy-variables-in-dataframe-in-r*](https://stackoverflow.com/questions/74365630/how-to-avoid-scaling-dummy-variables-in-dataframe-in-r)
+
+
+```{r}
+hawks_scaled <- hawks_selected %>%
+  mutate(
+    Wing = scale(Wing),
+    Weight = scale(Weight),
+    Culmen = scale(Culmen),
+    Hallux = scale(Hallux)  )
+print(hawks_scaled)
+```
+
+We have prepared our dataset for the **K-Means clustering study** by following a series of steps:
+
+1. **Dataset Cleaning**:  
+   - Missing values were either **removed** or **imputed with the mean**, considering that the number of missing attributes was **low**.
+
+2. **Variable Normalization**:  
+   - All numerical variables were **normalized** to ensure they contribute **equally** to the analysis.
+
+3. **Creation of Dummy Variables**:  
+   - Dummy variables were generated for **categorical features**, specifically for **two categorical attributes**.
+
+With the **cleaned and prepared dataset**, we now proceed with the **K-Means analysis**.  
+
+To do this, we will conduct **three tests** using **2, 3, and 5 clusters**.  
+
+This approach will allow us to evaluate how the data clusters under different scenarios and help determine the **optimal number of clusters** for our analysis.
+
+
+```{r}
+set.seed(123)  
+dos_grupos <- 2
+kmeans2_result <- kmeans(hawks_scaled, centers = dos_grupos)
+tres_grupos <- 3
+kmeans3_result <- kmeans(hawks_scaled, centers = tres_grupos)
+cinco_grupos <- 5
+kmeans5_result <- kmeans(hawks_scaled, centers = cinco_grupos)
+
+hawks_limpio2$Cluster2 <- as.factor(kmeans2_result$cluster)
+hawks_limpio2$Cluster3 <- as.factor(kmeans3_result$cluster)
+hawks_limpio2$Cluster5 <- as.factor(kmeans5_result$cluster)
+```
+
+Now, we will **visualize the clusters** and draw **conclusions** based on the results.
+
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Wing, y = Weight, color = Cluster2)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (2 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Weight (g)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Wing, y = Culmen, color = Cluster2)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (2 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Beak Size (mm)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Wing, y = Hallux, color = Cluster2)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (2 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Spur Size (mm)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Cluster2, fill = Cluster2)) +
+  geom_bar() +
+  labs(title = "Cluster Distribution (2 Groups)", 
+       x = "Cluster", 
+       y = "Count") +
+  theme_minimal()
+
+```
+
+Our **2-cluster option** seems like a **good choice**, as the distribution appears **well-defined**, clearly showing **two groups**.  
+
+However, we will continue our analysis with **3 clusters** to further evaluate the data.
+
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Wing, y = Weight, color = Cluster3)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (3 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Weight (g)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Wing, y = Culmen, color = Cluster3)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (3 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Beak Size (mm)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Wing, y = Hallux, color = Cluster3)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (3 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Spur Size (mm)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Cluster3, fill = Cluster3)) +
+  geom_bar() +
+  labs(title = "Cluster Distribution (3 Groups)", 
+       x = "Cluster", 
+       y = "Count") +
+  theme_minimal()
+
+```
+Comparing with the **2-cluster model**, the **3-cluster approach** seems to make **more sense**.  
+
+Additionally, considering that we have **3 species**, this is likely the **most logical reason** to use 3 clusters.  
+
+However, as we are conducting **multiple tests**, we will continue to evaluate whether **more clusters are a viable option**.  
+
+Next, we test with **5 clusters** to determine if further segmentation improves the analysis or if it becomes **less meaningful**.
+
+```{r}
+ggplot(hawks_limpio2, aes(x = Wing, y = Weight, color = Cluster5)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (5 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Weight (g)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Wing, y = Culmen, color = Cluster5)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (5 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Beak Size (mm)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Wing, y = Hallux, color = Cluster5)) +
+  geom_point() +
+  labs(title = "K-Means Clustering (5 Groups)", 
+       x = "Wing Size (mm)", 
+       y = "Spur Size (mm)") +
+  theme_minimal()
+
+ggplot(hawks_limpio2, aes(x = Cluster5, fill = Cluster5)) +
+  geom_bar() +
+  labs(title = "Cluster Distribution (5 Groups)", 
+       x = "Cluster", 
+       y = "Count") +
+  theme_minimal()
+
+```
+
+We **clearly observe** that **5 clusters** is **too many**.  
+
+Although there is **no exact definition** of the **optimal number of clusters** to distinguish **significant differences** among the selected variables, we will apply **several methods** taught in the **Multivariate Analysis course** from previous semesters.  
+
+These methods include:  
+- **Elbow Method**  
+- **Silhouette Method**  
+- **Gap Statistic**  
+
+From our observations, the **optimal number of clusters is between 2 and 3**, but the **best choice is 3**, as we have **three species**.
+
+
+
+
+```{r}
+dfnumeric <- hawks_limpio2 %>%
+  select(Wing, Weight, Culmen, Hallux, Sex_M, Sex_F, Age_A, Age_I)
+
+# Elbow Method
+wss <- sapply(1:10, function(k) {
+  kmeans(dfnumeric, k, nstart = 10)$tot.withinss
+})
+
+plot(1:10, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters K", ylab = "Total Within-Cluster Sum of Squares")
+
+# Silhouette Method
+avg_sil <- sapply(2:10, function(k) {
+  km <- kmeans(dfnumeric, centers = k, nstart = 10)
+  ss <- silhouette(km$cluster, dist(dfnumeric))
+  mean(ss[, 3])
+})
+
+plot(2:10, avg_sil, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of Clusters K", ylab = "Average Silhouette Width")
+
+# Gap Statistic Method
+gap_stat <- clusGap(dfnumeric, FUN = kmeans, nstart = 25, K.max = 10, B = 50)
+fviz_gap_stat(gap_stat)
+
+```
+Finally, we create a **hierarchical clustering plot** using the selected **number of clusters: 3**.
+
+```{r}
+dj <- dist(dfnumeric)
+cc <- hclust(dj, method = "complete")
+plot(cc, main = "Hierarchical Clustering of Birds")
+rect.hclust(cc, k = 3, border = "red")
+```
+## Final Conclusions
+
+The **measurements of wing length and beak size** allow for **clear species separation**, whereas **weight does not**.  
+
+When analyzing the **weight variable**, we observe that **observations overlap**, making it less effective for clustering.  
+
+As noted in our **initial exploratory analysis**, we have **more juvenile hawks compared to adults**, which may be a **key factor** influencing the **cluster distribution**.
+
+The **number of species (3)** serves as a **key indicator** for selecting **3 clusters**.  
+
+However, much of our analysis also suggests that **2 clusters would not be an incorrect choice**.
+
+### Final Verdict:
+
+After thoroughly analyzing the data and obtaining **strong results**, we conclude that **the lack of clear separation in the dataset implies that K-Means may not be the most suitable clustering method** for this dataset.
+
+---
+
+# Section 2: Study Using **DBSCAN and OPTICS**
+
+## Data Preparation
+
+Before proceeding, we need to understand **both clustering algorithms**.  
+
+We found the following information:  
+
+**[OPTICS Algorithm - Wikipedia](https://en.wikipedia.org/wiki/OPTICS_algorithm)**  
+
+- The **OPTICS algorithm** (*Ordering Points to Identify the Clustering Structure*) is a **density-based clustering method**.  
+- It is **similar to DBSCAN but more flexible**.  
+- OPTICS **orders data points** so that **closer points are grouped first**.  
+- It uses **two parameters**:  
+  - **ε (maximum radius)**  
+  - **MinPts (minimum number of points to form a cluster)**  
+- Each point receives a **reachability distance**, representing the **density required to form a cluster**.  
+- **OPTICS is particularly useful** for detecting clusters in **datasets with varying densities**.
+
+We chose **MinPts = 10**, based on the **example exercise** and the following reference:
+
+**[How to Determine Epsilon and MinPts for DBSCAN](https://www.sefidian.com/2022/12/18/how-to-determine-epsilon-and-minpts-parameters-of-dbscan-clustering/)**  
+
+- In **practice and literature**, a **MinPts value between 5 and 10** is **commonly used**.  
+- This range **balances sensitivity to clusters and resistance to outliers**.  
+- A **MinPts of 10** provides **enough flexibility** to adapt to **data variability**.
+
+We will use the **normalized dataset**, **excluding dummy variables**.  
+
+After the **initial analysis**, we will assess whether **repeating the experiment with dummy variables is necessary**.
+
+```{r}
+hawks_scaled2 <- hawks_scaled %>%
+  select(Wing, Weight, Culmen, Hallux)
+hawks_scaled2
+```
+
+## OPTICS
+
+```{r}
+res <- optics(hawks_scaled2, minPts = 10)
+res
+```
+The data indicates that **3.07488223798005** is the **maximum neighborhood size** to consider when determining proximity between data points.
+
+```{r}
+res$order
+```
+The **OPTICS point ordering** arranges data based on **density**, revealing the **cluster structure**.  
+
+To **better visualize the valleys**, we will **plot the reachability plot**, making it clearer to determine the **optimal number of clusters**.
+
+We observe **two large valleys** (**first indication, similar to K-Means**) and **three smaller ones**, with one being **more prominent**, leading to a **preliminary conclusion of 3 clusters**.  
+
+If we **consider all valleys**, we might **identify 5 clusters**.
+
+
+```{r}
+plot(res, main= "Diagram reachability plot")
+```
+Now, we will **visualize the clusters** using the **variables from our normalized dataset**.
+
+```{r}
+hawks_plot <- data.frame(
+  Wing = hawks_scaled2$Wing,
+  Weight = hawks_scaled2$Weight,
+  Culmen = hawks_scaled2$Culmen,
+  Hallux = hawks_scaled2$Hallux,
+  Order = res$order
+)
+
+ggplot(hawks_plot, aes(x = Wing, y = Weight)) +
+  geom_point(color = "grey") +
+  geom_polygon(aes(x = Wing[Order], y = Weight[Order]), fill = NA, color = "blue") +
+  ggtitle("Wing-Weight Traces") +
+  xlab("Wing Size") +
+  ylab("Weight") +
+  theme_minimal()
+
+ggplot(hawks_plot, aes(x = Wing, y = Culmen)) +
+  geom_point(color = "grey") +
+  geom_polygon(aes(x = Wing[Order], y = Culmen[Order]), fill = NA, color = "green") +
+  ggtitle("Wing-Beak Traces") +
+  xlab("Wing Size") +
+  ylab("Beak Size") +
+  theme_minimal()
+
+ggplot(hawks_plot, aes(x = Wing, y = Hallux)) +
+  geom_point(color = "grey") +
+  geom_polygon(aes(x = Wing[Order], y = Hallux[Order]), fill = NA, color = "red") +
+  ggtitle("Wing-Spur Traces") +
+  xlab("Wing Size") +
+  ylab("Spur Size") +
+  theme_minimal()
+
+ggplot(hawks_plot, aes(x = Weight, y = Culmen)) +
+  geom_point(color = "grey") +
+  geom_polygon(aes(x = Weight[Order], y = Culmen[Order]), fill = NA, color = "purple") +
+  ggtitle("Weight-Beak Traces") +
+  xlab("Weight") +
+  ylab("Beak Size") +
+  theme_minimal()
+
+ggplot(hawks_plot, aes(x = Weight, y = Hallux)) +
+  geom_point(color = "grey") +
+  geom_polygon(aes(x = Weight[Order], y = Hallux[Order]), fill = NA, color = "orange") +
+  ggtitle("Weight-Spur Traces") +
+  xlab("Weight") +
+  ylab("Spur Size") +
+  theme_minimal()
+
+ggplot(hawks_plot, aes(x = Culmen, y = Hallux)) +
+  geom_point(color = "grey") +
+  geom_polygon(aes(x = Culmen[Order], y = Hallux[Order]), fill = NA, color = "pink") +
+  ggtitle("Beak-Spur Traces") +
+  xlab("Beak Size") +
+  ylab("Spur Size") +
+  theme_minimal()
+
+
+```
+
+This type of chart is complex to interpret, so we created another one where we grouped everything to observe clearer patterns.
+
+
+
+```{r}
+hawks_long <- hawks_plot %>%
+  pivot_longer(cols = c(Wing, Weight, Culmen, Hallux), names_to = "variable", values_to = "value")
+
+ggplot(hawks_long, aes(x = Order, y = value, color = variable)) +
+  geom_point() +
+  geom_line(aes(group = variable)) +
+  facet_wrap(~ variable, scales = "free_y") +
+  ggtitle("Variables by Density Order (OPTICS)") +
+  theme_minimal()
+
+```
+**Wing vs. Weight Relationship**  
+We can see clear groupings in the *Wing vs. Weight* plots. This suggests that wing size and weight are characteristics that may help distinguish between hawk species. For example, larger and heavier hawks might belong to a specific species, while smaller and lighter ones may belong to another.
+
+**Wing vs. Culmen Relationship**  
+The *Wing vs. Culmen* plot also shows groupings, indicating that wing size and beak size are correlated. This can be particularly useful for identifying species with specific beak and wing characteristics, such as *cooperative hawks*.
+
+**Wing vs. Hallux Relationship**  
+Although less obvious, the *Wing vs. Hallux* plot still shows some grouping patterns. The length of the spur, along with wing size, may differentiate certain species or ages within the same species.
+
+**Weight vs. Culmen and Weight vs. Hallux Relationships**  
+These plots show less clear differentiation, suggesting that weight is not as strong of an independent predictor for beak and spur characteristics. However, when combined with other variables, it can still provide valuable insights.
+
+**Species and Clusters**  
+Finally, by including these measurements in the clustering analysis, we can infer that there are three main clusters corresponding to the three hawk species. The grouping observed in the plots confirms that physical characteristics have a significant impact on species classification.
+
+
+## DBSCAN
+
+Now, let's move on to the second algorithm, DBSCAN.  
+We are not sure what epsilon value to use, so we referred to this reference: **[How to find optimal epsilon value](https://blog.dailydoseofds.com/p/how-to-find-optimal-epsilon-value)**
+
+Looking at the k-distance graph (we used 9 as indicated by `minPts - 1 = k`), we can see that the curve remains relatively flat for most of the points but starts to increase sharply towards the end. The point where the slope of the graph changes sharply is between 0.4 and 0.7 on the axis. This suggests that the mean should be around 0.55.
+
+
+```{r}
+k <- 9
+kNNdistplot(hawks_scaled2, k = k)
+```
+The clusters contain **559**, **60**, and **258** points respectively, highlighting the structure of the data in specific densities and confirming the effectiveness of this epsilon value.
+
+```{r}
+res <- extractDBSCAN(res, eps_cl = 0.55)
+res
+```
+We plotted the data and can clearly see the **3 clusters** and the corresponding **noise**.
+
+
+```{r}
+plot(res)
+```
+We also plotted it additionally, where it is even clearer.
+
+```{r}
+hullplot(hawks_scaled2, res)
+```
+
+We will perform the same process but including our dummy variables for sex and age.
+
+```{r}
+hawks_scaled
+```
+
+```{r}
+res2 <- optics(hawks_scaled, minPts = 10)
+res2
+```
+
+The data indicates that **3.47** is the maximum size to consider the neighborhood between the data points, so the size has been slightly increased.  
+We will print the order again for this new analysis.
+
+```{r}
+res2$order
+```
+It is clear that the number of valleys has increased considerably, as well as their size.
+
+```{r}
+plot(res2, main= "Diagram reachability plot")
+```
+
+```{r}
+k <- 9
+kNNdistplot(hawks_scaled, k = k)
+```
+We can see that the elbow continues to rise drastically, even a bit later from **0.6 to 0.8**, shifting to a mean of **0.7**. We will introduce this new change in epsilon.
+
+```{r}
+res2 <- extractDBSCAN(res2, eps_cl = 0.7)
+res2
+```
+As expected, the number of clusters changes radically, we now have **8** clusters and much more noise, as seen in the plot.
+
+```{r}
+plot(res2)
+```
+
+Upon plotting, we see that the clusters themselves overlap, concluding that this analysis is not valid and is erroneous.
+
+```{r}
+hullplot(hawks_scaled2, res2)
+```
+
+
+We return to our normalized dataset without the dummy attributes and change the epsilon value to **0.6** and **0.61**, determining if we see significant changes since we are right on the limit.
+
+
+```{r}
+res06 <- extractDBSCAN(res, eps_cl = 0.6)
+res06
+```
+
+```{r}
+res61 <- extractDBSCAN(res, eps_cl = 0.61)
+res61
+```
+
+**Conclusions ESP**
+
+The tests with eps_cl values of **0.55**, **0.6**, and **0.61** for the OPTICS algorithm provide a clear insight into the sensitivity of the epsilon parameter in cluster identification. With eps_cl = 0.55 and eps_cl = 0.6, OPTICS identifies **3 clusters**, with a small variation in the number of noise points (**31** and **29**, respectively). However, when increasing eps_cl to **0.61**, the number of clusters reduces to **2**, and the noise points decrease to **28**.
+
+This indicates that the epsilon value within the range of **0.55 to 0.61** is a critical margin where small changes can significantly affect the clustering structure. This behavior suggests that the data has variable density, which is sensitive to epsilon adjustments, affecting the algorithm's ability to differentiate between dense clusters and noise points.
+
+In comparison, the DBSCAN and OPTICS methods show greater stability and clarity in the clustering structure, consistently identifying three main clusters with different eps_cl values. The average number of noise points varied slightly, but the overall result was consistent with the data structure.  
+This stability suggests that density-based methods like DBSCAN and OPTICS may be more suitable for these specific data compared to partition-based methods like k-means, especially due to their ability to handle density variations and detect noise points.
+
+
+# Exercise 3: Comparison of *k-means* and *DBSCAN* Methods    
+
++ **https://blogdatlas.wordpress.com/2024/04/06/clusterizacion-espacial-k-means-vs-dbscan-descripcion-y-ejemplo-practico-con-qgis-columna-de-investigacion-datlas/**
++ **https://www.geeksforgeeks.org/difference-between-k-means-and-dbscan-clustering/**
++ **https://www.kaggle.com/code/ahmedmohameddawoud/dbscan-vs-k-means-visualizing-the-difference**
++ **https://hex.tech/blog/comparing-density-based-methods/**
+
+## Comparison of *k-means* and *DBSCAN* Methods
+
+Each of these clustering algorithms has its pros and cons. Choosing the best one depends on the structure and characteristics of the dataset and the purpose of the clustering. For example, if we want to group customers and need all the data to belong to a group, K-means is useful because it guarantees that each data point will belong to a cluster. On the other hand, if we want to filter noise and focus only on certain subsets, DBSCAN is better, as it allows ignoring isolated data points and focusing only on the most relevant ones, such as in an analysis of areas with prospect potential.
+
+### Comparison of Algorithms
+
+K-means forms spherical clusters and requires specifying the number of groups beforehand. It is efficient with large datasets and is not affected by the variation in densities between points. However, it is sensitive to noise and outliers, which can distort the formation of clusters and make anomaly detection difficult. It only needs to define one parameter: the desired number of clusters (K).
+
+On the other hand, DBSCAN creates irregularly shaped clusters of variable sizes without needing to specify the number of groups beforehand. Although not as efficient with high-dimensional data, it handles noise well and can mark certain points as "noise" or out of the clusters, making anomaly detection easier. However, it is sensitive to the choice of its two parameters: the neighborhood radius (R) and the minimum number of points (M) in that neighborhood, and it doesn't perform well with sparse data or with highly variable densities.
+
+Both algorithms have strengths: K-means works well on large, uniform data, while DBSCAN excels with complex densities and noise. The choice between them should be based on the type of data and the specific needs of the analysis.
+
+
+### Real-world Comparison
+
+In a study conducted by Schubert et al. (2017), K-Means and DBSCAN were compared on simulated datasets with different density and shape configurations. The results showed that DBSCAN outperformed K-Means in situations where clusters had different shapes and sizes, while K-Means was more efficient in uniformly distributed data. This study illustrates how the choice of algorithm can significantly affect data interpretation.  
+A practical use case is in analyzing customer data in the retail sector. If K-Means is used, the segmentation may be appropriate if customers group consistently and without significant outliers. However, if the data contains customers with extreme behaviors, DBSCAN could provide better insights by identifying those outliers and preserving the integrity of the main clusters.
+
+### Conclusion
+
+The choice between K-Means and DBSCAN depends on the type of data and the application context. K-Means is preferable for well-structured and spherical data, while DBSCAN is the best choice for data with complex shapes and the presence of outliers. Understanding the characteristics of each algorithm allows analysts to select the most suitable one, thus improving the quality of the results and data-driven decision-making.
+
+## Comparison of *k-means* and *DBSCAN* Methods in Our Analysis
+
+The analysis conducted concludes that, in the dataset used, three heterogeneous groups were identified, and DBSCAN and OPTICS methods outperformed K-means, especially in a dataset with much noise and variability. However, the results were not entirely satisfactory.
+
+### Comparison of Clustering Methods: K-means and DBSCAN
+
+**K-means:** A prototype-based clustering method that seeks to minimize the variance within each group. While simple and effective, it requires knowing the number of clusters beforehand and tends to form circular clusters, which limits its usefulness in noisy datasets or datasets with complex shapes.
+
+**DBSCAN:** A density-based method that groups points with a high concentration in their neighborhood, allowing the identification of non-linear clusters and handling noise and outliers well. However, it is sensitive to the input parameters, and its performance can be affected in high-dimensional datasets.
+
+**OPTICS** was explored as an extension of DBSCAN, which allows identifying clusters with variable densities and represents the results graphically, facilitating analysis in contexts where clustering patterns are not obvious.
+
+
+## Final Conclusions in Comparison of Results
+
+When applying both methods to a dataset of raptor birds, it was observed that K-means generated uniform clusters with good separation, while DBSCAN identified more complex and dense clusters and handled noise better. OPTICS provided a useful visual representation of the structure and density of the data.
+
+Regarding cluster validation, both techniques showed good cohesion and separation according to the average silhouette index, indicating less compactness and separation between clusters.
+
+Both methods can be useful, depending on the nature of the dataset and the research questions.
+
+
+

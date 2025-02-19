@@ -24,15 +24,15 @@ Here are the clustering results from different algorithms:
 
 ### K-Means Clustering
 
-![K-Means Clustering](images/kmeans_cluster.png)
+![K-Means Clustering](images/kmeans_cluster.PNG)
 
 ### DBSCAN Clustering
 
-![DBSCAN Clustering](images/dbscan_cluster.png)
+![DBSCAN Clustering](images/dbscan_cluster.PNG)
 
 ### OPTICS Clustering
 
-![OPTICS Clustering](images/optics_cluster.png)
+![OPTICS Clustering](images/optics_cluster.PNG)
 
 ## 📊 Results
 

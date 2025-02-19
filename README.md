@@ -54,11 +54,12 @@ Clustering-Analysis/
 │   ├── optics_cluster.png        # OPTICS clustering visualization.
 │   └── cluster_analysis_icon.png # Icon for the project.
 └── README.md                     # Project description and guide.
+```
 
-🚀 Getting Started
+## 🚀 Getting Started
 To replicate this analysis locally:
 
-Clone this repository:
+## Clone this repository:
 
 git clone https://github.com/yourusername/clustering-analysis.git
 Install R packages (via RStudio):
@@ -66,7 +67,8 @@ Install R packages (via RStudio):
 install.packages(c("ggplot2", "cluster", "fpc", "dbscan"))
 Run the Analysis: Open Clustering-Analysis.Rmd in RStudio and knit it to generate the output.
 
-⚖️ Conclusion
+## ⚖️ Conclusion
+
 DBSCAN and OPTICS provided superior clustering results, especially in handling irregular cluster shapes and noise.
 Both methods are more robust to variations in data density than K-Means, making them ideal for complex, real-world datasets.
 
